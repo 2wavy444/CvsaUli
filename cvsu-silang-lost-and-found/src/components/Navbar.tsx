@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
@@ -13,7 +13,7 @@ interface UserProfile {
   role: string;
 }
 
-export default function Navbar() {
+export function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -52,7 +52,7 @@ export default function Navbar() {
             user.email?.split('@')[0] ||
             'Campus User',
           student_id: data?.student_id || user.user_metadata?.student_id || 'N/A',
-          department: data?.department || user.user_metadata?.department || 'CvSU – Silang',
+          department: data?.department || user.user_metadata?.department || 'CvSU â€“ Silang',
           role: data?.role || 'student',
         });
       } else {
@@ -110,7 +110,7 @@ export default function Navbar() {
           </div>
           <div className="leading-tight">
             <span className="block text-sm font-bold text-slate-900 sm:text-base">
-              CvSU – Silang Campus
+              CvSU â€“ Silang Campus
             </span>
             <span className="block text-xs font-medium text-emerald-700">
               Lost &amp; Found Management System
@@ -286,7 +286,7 @@ export default function Navbar() {
               <p className="text-sm font-bold text-slate-900">{profile.full_name}</p>
               <p className="text-xs text-slate-500">{profile.email}</p>
               <p className="mt-1 text-xs font-medium text-emerald-700">
-                ID: {profile.student_id} • {profile.role.toUpperCase()}
+                ID: {profile.student_id} â€¢ {profile.role.toUpperCase()}
               </p>
             </div>
           )}
@@ -357,3 +357,4 @@ export default function Navbar() {
     </header>
   );
 }
+export default Navbar;
