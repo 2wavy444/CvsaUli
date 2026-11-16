@@ -1,6 +1,7 @@
-﻿'use client';
+﻿
+'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
@@ -16,91 +17,156 @@ interface UserProfile {
 export function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
+
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  // Create Supabase client once
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
   );
 
+  // Load authenticated user and profile
   useEffect(() => {
     let active = true;
 
     async function loadUser() {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser();
 
-      if (!active) return;
+        if (error) throw error;
 
-      if (user) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('full_name, student_id, department, role')
-          .eq('id', user.id)
-          .single();
+        if (!active) return;
 
-        setProfile({
-          email: user.email ?? '',
-          full_name:
-            data?.full_name ||
-            user.user_metadata?.full_name ||
-            user.email?.split('@')[0] ||
-            'Campus User',
-          student_id: data?.student_id || user.user_metadata?.student_id || 'N/A',
-          department: data?.department || user.user_metadata?.department || 'CvSU â€“ Silang',
-          role: data?.role || 'student',
-        });
-      } else {
-        setProfile(null);
+        if (user) {
+          const { data } = await supabase
+            .from('profiles')
+            .select('full_name, student_id, department, role')
+            .eq('id', user.id)
+            .single();
+
+          if (!active) return;
+
+          setProfile({
+            email: user.email ?? '',
+            full_name:
+              data?.full_name ||
+              user.user_metadata?.full_name ||
+              user.email?.split('@')[0] ||
+              'Campus User',
+            student_id:
+              data?.student_id ||
+              user.user_metadata?.student_id ||
+              'N/A',
+            department:
+              data?.department ||
+              user.user_metadata?.department ||
+              'CvSU – Silang',
+            role: data?.role || 'student',
+          });
+        } else {
+          setProfile(null);
+        }
+      } catch (error) {
+        console.error('Error loading user profile:', error);
+
+        if (active) {
+          setProfile(null);
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     }
 
-    loadUser();
+    void loadUser();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(() => {
-      loadUser();
+      void loadUser();
     });
 
     return () => {
       active = false;
       subscription.unsubscribe();
     };
-  }, [pathname]);
+  }, [pathname, supabase]);
 
+  // Close account dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
         setMenuOpen(false);
       }
     }
+
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
+  // Sign out
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      console.error('Sign out error:', error);
+      return;
+    }
+
     setProfile(null);
     setMenuOpen(false);
     setMobileNavOpen(false);
+
     router.push('/login');
     router.refresh();
   };
 
+  // Active navigation styling
+  const navClass = (path: string) =>
+    `text-sm font-medium transition ${
+      pathname === path
+        ? 'text-emerald-700 font-semibold'
+        : 'text-slate-600 hover:text-emerald-700'
+    }`;
+
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+
         {/* Brand */}
-        <Link href={profile ? '/dashboard' : '/'} className="flex items-center gap-3">
+        <Link
+          href={profile ? '/dashboard' : '/'}
+          className="flex items-center gap-3"
+        >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-800 text-white shadow-sm">
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+            >
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -108,10 +174,12 @@ export function Navbar() {
               />
             </svg>
           </div>
+
           <div className="leading-tight">
             <span className="block text-sm font-bold text-slate-900 sm:text-base">
-              CvSU â€“ Silang Campus
+              CvSU – Silang Campus
             </span>
+
             <span className="block text-xs font-medium text-emerald-700">
               Lost &amp; Found Management System
             </span>
@@ -120,55 +188,45 @@ export function Navbar() {
 
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-6 md:flex">
+
           {profile && (
-            <Link
-              href="/dashboard"
-              className={`text-sm font-medium transition ${
-                pathname === '/dashboard'
-                  ? 'text-emerald-700 font-semibold'
-                  : 'text-slate-600 hover:text-emerald-700'
-              }`}
-            >
+            <Link href="/dashboard" className={navClass('/dashboard')}>
               Dashboard
             </Link>
           )}
-          <Link
-            href="/lost-items"
-            className={`text-sm font-medium transition ${
-              pathname === '/lost-items'
-                ? 'text-emerald-700 font-semibold'
-                : 'text-slate-600 hover:text-emerald-700'
-            }`}
-          >
+
+          <Link href="/lost-items" className={navClass('/lost-items')}>
             Lost Items
           </Link>
-          <Link
-            href="/found-items"
-            className={`text-sm font-medium transition ${
-              pathname === '/found-items'
-                ? 'text-emerald-700 font-semibold'
-                : 'text-slate-600 hover:text-emerald-700'
-            }`}
-          >
+
+          <Link href="/found-items" className={navClass('/found-items')}>
             Found Items
           </Link>
 
           {!loading && profile ? (
             <div className="relative" ref={dropdownRef}>
+
+              {/* Account Button */}
               <button
                 type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}
+                aria-expanded={menuOpen}
                 className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-left transition hover:border-emerald-300 hover:bg-emerald-50/50"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-800 text-xs font-bold uppercase text-white">
                   {profile.full_name.charAt(0)}
                 </div>
+
                 <div className="hidden lg:block">
                   <p className="max-w-[140px] truncate text-xs font-semibold text-slate-900">
                     {profile.full_name}
                   </p>
-                  <p className="text-[11px] capitalize text-slate-500">{profile.role}</p>
+
+                  <p className="text-[11px] capitalize text-slate-500">
+                    {profile.role}
+                  </p>
                 </div>
+
                 <svg
                   className={`h-4 w-4 text-slate-500 transition-transform ${
                     menuOpen ? 'rotate-180' : ''
@@ -178,45 +236,64 @@ export function Navbar() {
                   strokeWidth={2}
                   viewBox="0 0 24 24"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 9l-7 7-7-7"
+                  />
                 </svg>
               </button>
 
+              {/* Account Dropdown */}
               {menuOpen && (
                 <div className="absolute right-0 mt-2 w-72 origin-top-right rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
-                  {/* Account Summary Card */}
+
+                  {/* Account Summary */}
                   <div className="rounded-xl bg-slate-50 p-3">
-                    <p className="truncate text-sm font-bold text-slate-900">{profile.full_name}</p>
-                    <p className="truncate text-xs text-slate-500">{profile.email}</p>
+                    <p className="truncate text-sm font-bold text-slate-900">
+                      {profile.full_name}
+                    </p>
+
+                    <p className="truncate text-xs text-slate-500">
+                      {profile.email}
+                    </p>
+
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase text-emerald-800">
                         {profile.role}
                       </span>
+
                       <span className="rounded-md bg-slate-200/80 px-2 py-0.5 text-[11px] font-medium text-slate-700">
                         ID: {profile.student_id}
                       </span>
                     </div>
                   </div>
 
-                  {/* Settings & Account Actions */}
+                  {/* Account Actions */}
                   <div className="mt-2 space-y-1">
+
                     <Link
                       href="/account"
                       onClick={() => setMenuOpen(false)}
                       className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
                     >
-                      <span>Account Info &amp; Profile Settings</span>
+                      Account Info &amp; Profile Settings
                     </Link>
 
-                    {(profile.role === 'admin' || profile.role === 'personnel') && (
+                    {(profile.role === 'admin' ||
+                      profile.role === 'personnel') && (
                       <Link
-                        href={profile.role === 'admin' ? '/admin' : '/personnel'}
+                        href={
+                          profile.role === 'admin'
+                            ? '/admin'
+                            : '/personnel'
+                        }
                         onClick={() => setMenuOpen(false)}
                         className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
                       >
-                        <span>
-                          {profile.role === 'admin' ? 'Admin Control Panel' : 'Personnel Desk'}
-                        </span>
+                        {profile.role === 'admin'
+                          ? 'Admin Control Panel'
+                          : 'Personnel Desk'}
                       </Link>
                     )}
 
@@ -225,7 +302,7 @@ export function Navbar() {
                       onClick={() => setMenuOpen(false)}
                       className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
                     >
-                      <span>Switch Account / Login Settings</span>
+                      Switch Account / Login Settings
                     </Link>
 
                     <hr className="my-1 border-slate-100" />
@@ -235,7 +312,7 @@ export function Navbar() {
                       onClick={handleSignOut}
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
                     >
-                      <span>Sign Out</span>
+                      Sign Out
                     </button>
                   </div>
                 </div>
@@ -250,6 +327,7 @@ export function Navbar() {
                 >
                   Sign In
                 </Link>
+
                 <Link
                   href="/register"
                   className="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
@@ -266,32 +344,56 @@ export function Navbar() {
           type="button"
           onClick={() => setMobileNavOpen((prev) => !prev)}
           aria-label="Toggle Menu"
+          aria-expanded={mobileNavOpen}
           className="inline-flex items-center justify-center rounded-lg border border-slate-200 p-2 text-slate-700 hover:bg-slate-100 md:hidden"
         >
-          <svg className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+          <svg
+            className="h-6 w-6"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            viewBox="0 0 24 24"
+          >
             {mobileNavOpen ? (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18L18 6M6 6l12 12"
+              />
             ) : (
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 6h16M4 12h16M4 18h16"
+              />
             )}
           </svg>
         </button>
       </div>
 
-      {/* Mobile Dropdown Drawer */}
+      {/* Mobile Navigation Drawer */}
       {mobileNavOpen && (
         <div className="border-t border-slate-200 bg-white px-4 pb-5 pt-3 md:hidden">
+
+          {/* Mobile User Profile */}
           {profile && (
             <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-sm font-bold text-slate-900">{profile.full_name}</p>
-              <p className="text-xs text-slate-500">{profile.email}</p>
+              <p className="text-sm font-bold text-slate-900">
+                {profile.full_name}
+              </p>
+
+              <p className="text-xs text-slate-500">
+                {profile.email}
+              </p>
+
               <p className="mt-1 text-xs font-medium text-emerald-700">
-                ID: {profile.student_id} â€¢ {profile.role.toUpperCase()}
+                ID: {profile.student_id} • {profile.role.toUpperCase()}
               </p>
             </div>
           )}
 
           <div className="flex flex-col space-y-2">
+
             {profile && (
               <Link
                 href="/dashboard"
@@ -301,6 +403,7 @@ export function Navbar() {
                 Dashboard
               </Link>
             )}
+
             <Link
               href="/lost-items"
               onClick={() => setMobileNavOpen(false)}
@@ -308,6 +411,7 @@ export function Navbar() {
             >
               Lost Items
             </Link>
+
             <Link
               href="/found-items"
               onClick={() => setMobileNavOpen(false)}
@@ -325,6 +429,24 @@ export function Navbar() {
                 >
                   Account Info &amp; Settings
                 </Link>
+
+                {(profile.role === 'admin' ||
+                  profile.role === 'personnel') && (
+                  <Link
+                    href={
+                      profile.role === 'admin'
+                        ? '/admin'
+                        : '/personnel'
+                    }
+                    onClick={() => setMobileNavOpen(false)}
+                    className="rounded-lg px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-50"
+                  >
+                    {profile.role === 'admin'
+                      ? 'Admin Control Panel'
+                      : 'Personnel Desk'}
+                  </Link>
+                )}
+
                 <button
                   type="button"
                   onClick={handleSignOut}
@@ -342,6 +464,7 @@ export function Navbar() {
                 >
                   Sign In
                 </Link>
+
                 <Link
                   href="/register"
                   onClick={() => setMobileNavOpen(false)}
@@ -357,4 +480,5 @@ export function Navbar() {
     </header>
   );
 }
+
 export default Navbar;
