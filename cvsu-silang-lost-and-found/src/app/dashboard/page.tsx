@@ -1,181 +1,262 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
-import { formatDate } from '@/lib/utils/reference';
+import BackButton from '@/components/BackButton';
 
-export default async function UserDashboardPage() {
+export default async function DashboardPage() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect('/login');
+  if (!user) {
+    redirect('/login');
+  }
 
-  const [{ data: profile }, { data: reports }, { data: claims }, { data: notifications }] =
-    await Promise.all([
-      supabase.from('profiles').select('*').eq('id', user.id).single(),
-      supabase
-        .from('item_reports')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('claim_requests')
-        .select('*, item_reports(item_name, reference_number)')
-        .eq('claimant_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10),
-    ]);
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
 
-  const lostCount = reports?.filter((r) => r.report_type === 'lost').length ?? 0;
-  const foundCount = reports?.filter((r) => r.report_type === 'found').length ?? 0;
-  const pendingCount = reports?.filter((r) => r.status === 'Pending Review').length ?? 0;
-  const approvedCount = reports?.filter((r) => r.status === 'Approved').length ?? 0;
+  const displayName =
+    profile?.full_name ||
+    user.user_metadata?.full_name ||
+    user.email?.split('@')[0] ||
+    'Campus User';
+  const studentId = profile?.student_id || user.user_metadata?.student_id || 'N/A';
+
+  const { data: reports } = await supabase
+    .from('items')
+    .select('*')
+    .eq('reporter_id', user.id)
+    .order('created_at', { ascending: false });
+
+  const { data: claims } = await supabase
+    .from('claims')
+    .select('*, items(title, reference_code)')
+    .eq('claimant_id', user.id)
+    .order('created_at', { ascending: false });
+
+  const { data: notifications } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  const safeReports = reports ?? [];
+  const safeClaims = claims ?? [];
+  const safeNotifications = notifications ?? [];
+
+  const lostCount = safeReports.filter((r) => r.type === 'lost').length;
+  const foundCount = safeReports.filter((r) => r.type === 'found').length;
+  const pendingCount = safeReports.filter((r) => r.status === 'pending').length;
+  const approvedCount = safeReports.filter((r) => r.status === 'approved').length;
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <BackButton fallbackHref="/" label="Back to Home" />
+
+      {/* Header Banner */}
+      <div className="mb-6 flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:p-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Welcome, {profile?.full_name ?? 'Campus User'}
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
+            Welcome, {displayName}
           </h1>
-          <p className="text-sm text-slate-600">
-            {profile?.college_department} &bull; ID: {profile?.student_employee_id ?? 'N/A'}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500 sm:text-sm">
+            <span>• ID: {studentId}</span>
+            <span>• {user.email}</span>
+            <Link
+              href="/account"
+              className="font-semibold text-emerald-700 underline-offset-2 hover:underline"
+            >
+              Edit Account Info
+            </Link>
+          </div>
         </div>
-        <div className="flex gap-3">
+
+        <div className="grid grid-cols-1 gap-2.5 sm:flex sm:flex-wrap">
           <Link
             href="/report/lost"
-            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-center text-sm font-semibold text-slate-800 transition hover:bg-slate-50"
           >
             Report Lost Item
           </Link>
           <Link
             href="/report/found"
-            className="rounded-lg bg-cvsu-green px-4 py-2 text-sm font-semibold text-white hover:bg-cvsu-dark"
+            className="rounded-xl bg-emerald-800 px-4 py-2.5 text-center text-sm font-semibold text-white transition hover:bg-emerald-700"
           >
             Report Found Item
           </Link>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {[
-          { label: 'Lost Reports', value: lostCount },
-          { label: 'Found Reports', value: foundCount },
-          { label: 'Pending Review', value: pendingCount },
-          { label: 'Approved Reports', value: approvedCount },
-          { label: 'Claim Requests', value: claims?.length ?? 0 },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-slate-200 bg-white p-5">
-            <p className="text-xs font-semibold uppercase text-slate-500">{stat.label}</p>
-            <p className="mt-2 text-3xl font-bold text-slate-900">{stat.value}</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-10 grid gap-8 lg:grid-cols-3">
-        {/* My Reports */}
-        <div className="space-y-4 lg:col-span-2">
-          <h2 className="text-lg font-bold text-slate-900">My Submitted Reports</h2>
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Ref #</th>
-                  <th className="px-4 py-3">Item</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {reports && reports.length > 0 ? (
-                  reports.map((r) => (
-                    <tr key={r.id}>
-                      <td className="px-4 py-3 font-mono text-xs">{r.reference_number}</td>
-                      <td className="px-4 py-3 font-medium">{r.item_name}</td>
-                      <td className="px-4 py-3 uppercase text-xs">{r.report_type}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold">
-                          {r.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-500">{formatDate(r.created_at)}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                      No reports submitted yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <h2 className="pt-4 text-lg font-bold text-slate-900">My Claim Requests</h2>
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Claim Ref</th>
-                  <th className="px-4 py-3">Item</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Staff Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {claims && claims.length > 0 ? (
-                  claims.map((c: any) => (
-                    <tr key={c.id}>
-                      <td className="px-4 py-3 font-mono text-xs">{c.reference_number}</td>
-                      <td className="px-4 py-3 font-medium">{c.item_reports?.item_name}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                          {c.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{c.review_notes ?? '—'}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
-                      No claim requests submitted yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+      {/* Responsive Stats Grid */}
+      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Lost Reports
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">{lostCount}</p>
         </div>
 
-        {/* Notifications */}
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Found Reports
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">{foundCount}</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Pending Review
+          </p>
+          <p className="mt-2 text-2xl font-bold text-amber-600 sm:text-3xl">{pendingCount}</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Approved Reports
+          </p>
+          <p className="mt-2 text-2xl font-bold text-emerald-700 sm:text-3xl">{approvedCount}</p>
+        </div>
+
+        <div className="col-span-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:col-span-1 sm:p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Claim Requests
+          </p>
+          <p className="mt-2 text-2xl font-bold text-slate-900 sm:text-3xl">{safeClaims.length}</p>
+        </div>
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Left 2 Columns: Tables */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* My Submitted Reports */}
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-base font-bold text-slate-900 sm:text-lg">
+                My Submitted Reports
+              </h2>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[540px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Ref #</th>
+                    <th className="px-4 py-3">Item</th>
+                    <th className="px-4 py-3">Type</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {safeReports.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
+                        No reports submitted yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    safeReports.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">
+                          {item.reference_code}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          <Link href={`/items/${item.id}`} className="hover:text-emerald-700">
+                            {item.title}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 capitalize text-slate-600">{item.type}</td>
+                        <td className="px-4 py-3">
+                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold capitalize text-slate-700">
+                            {item.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500">
+                          {new Date(item.created_at).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {/* My Claim Requests */}
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 className="text-base font-bold text-slate-900 sm:text-lg">
+                My Claim Requests
+              </h2>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[540px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Claim Ref</th>
+                    <th className="px-4 py-3">Item</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Staff Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {safeClaims.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">
+                        No claim requests submitted yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    safeClaims.map((claim) => (
+                      <tr key={claim.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">
+                          {claim.claim_code ?? claim.id.slice(0, 8)}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          {claim.items?.title ?? 'Reported Item'}
+                        </td>
+                        <td className="px-4 py-3 capitalize text-slate-700">{claim.status}</td>
+                        <td className="px-4 py-3 text-xs text-slate-500">
+                          {claim.staff_notes || '—'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        {/* Right Column: Notifications */}
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Notifications</h2>
-          <div className="mt-4 space-y-3">
-            {notifications && notifications.length > 0 ? (
-              notifications.map((n) => (
-                <div key={n.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                  <p className="text-sm font-bold text-slate-900">{n.title}</p>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">{n.message}</p>
-                  <p className="mt-2 text-[11px] text-slate-400">{formatDate(n.created_at)}</p>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-500">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h2 className="mb-3 text-base font-bold text-slate-900 sm:text-lg">Notifications</h2>
+            {safeNotifications.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-400">
                 No notifications yet.
               </div>
+            ) : (
+              <ul className="space-y-3">
+                {safeNotifications.map((note) => (
+                  <li
+                    key={note.id}
+                    className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs text-slate-700"
+                  >
+                    <p className="font-semibold text-slate-900">{note.title}</p>
+                    <p className="mt-0.5 text-slate-600">{note.message}</p>
+                  </li>
+                ))}
+              </ul>
             )}
-          </div>
+          </section>
         </div>
       </div>
     </div>
