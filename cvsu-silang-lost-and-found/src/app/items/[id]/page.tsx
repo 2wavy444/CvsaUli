@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import BackButton from '@/components/BackButton';
+import ConfirmItemAction from '@/components/ConfirmItemAction';
 
 export default async function ItemDetailPage({
   params,
@@ -10,11 +11,10 @@ export default async function ItemDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const { data: item } = await supabase
-    .from('items')
-    .select('*')
-    .eq('id', id)
-    .single();
+  const [{ data: item }, { data: { user } }] = await Promise.all([
+    supabase.from('items').select('*').eq('id', id).single(),
+    supabase.auth.getUser(),
+  ]);
 
   if (!item) {
     notFound();
@@ -79,7 +79,9 @@ export default async function ItemDetailPage({
               <span className="block text-xs font-semibold uppercase text-slate-500">
                 Contact Information
               </span>
-              <span className="font-medium text-slate-900">{item.contact_info || 'OSAS / Security Desk'}</span>
+              <span className="font-medium text-slate-900">
+                {item.contact_info || 'OSAS / Security Desk'}
+              </span>
             </div>
             <div>
               <span className="block text-xs font-semibold uppercase text-slate-500">
@@ -90,6 +92,16 @@ export default async function ItemDetailPage({
               </span>
             </div>
           </div>
+
+          <ConfirmItemAction
+            itemId={item.id}
+            referenceCode={item.reference_code}
+            itemTitle={item.title}
+            itemType={item.type}
+            currentStatus={item.status}
+            reporterId={item.reporter_id}
+            currentUserId={user?.id ?? null}
+          />
         </div>
       </div>
     </div>
