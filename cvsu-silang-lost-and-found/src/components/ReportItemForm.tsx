@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@supabase/ssr';
 import BackButton from '@/components/BackButton';
@@ -9,17 +9,37 @@ interface ReportItemFormProps {
   initialType?: 'lost' | 'found';
 }
 
-const CAMPUS_LOCATIONS = [
-  'Main Gate / Guardhouse',
-  'Administration Building',
-  'CEIT / Engineering Building',
-  'CAFENR Building',
-  'CAS / Arts & Sciences Building',
-  'University Library',
-  'Student Center / Cafeteria',
-  'Gymnasium / Covered Court',
-  'Other Campus Area',
+type BuildingKey =
+  | 'Gym'
+  | 'First Building'
+  | 'Second Building'
+  | 'Third Building'
+  | 'Hostel Building'
+  | 'Canteen';
+
+const BUILDINGS: BuildingKey[] = [
+  'Gym',
+  'First Building',
+  'Second Building',
+  'Third Building',
+  'Hostel Building',
+  'Canteen',
 ];
+
+const FLOORS_BY_BUILDING: Record<BuildingKey, string[]> = {
+  Gym: [],
+  'First Building': ['Floor 1', 'Floor 2'],
+  'Second Building': ['Floor 1', 'Floor 2'],
+  'Third Building': [
+    'Floor 1',
+    'Floor 2 (Comlab) - Library',
+    'Floor 3',
+    'Floor 4',
+    'Floor 5',
+  ],
+  'Hostel Building': [],
+  Canteen: [],
+};
 
 const CATEGORIES = [
   'ID / Wallet / Cards',
@@ -33,15 +53,23 @@ const CATEGORIES = [
 
 export default function ReportItemForm({ initialType = 'lost' }: ReportItemFormProps) {
   const router = useRouter();
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = useMemo(
+    () =>
+      createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      ),
+    []
   );
 
   const [reportType, setReportType] = useState<'lost' | 'found'>(initialType);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
-  const [location, setLocation] = useState(CAMPUS_LOCATIONS[0]);
+
+  const [building, setBuilding] = useState<BuildingKey>('Gym');
+  const [floor, setFloor] = useState<string>('');
+  const [roomNumber, setRoomNumber] = useState<string>('');
+
   const [incidentDate, setIncidentDate] = useState(() => {
     const now = new Date();
     now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
@@ -56,15 +84,44 @@ export default function ReportItemForm({ initialType = 'lost' }: ReportItemFormP
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  const availableFloors = FLOORS_BY_BUILDING[building] ?? [];
+  const hasFloors = availableFloors.length > 0;
+  const hasRooms =
+    building === 'First Building' ||
+    building === 'Second Building' ||
+    building === 'Third Building';
+
   useEffect(() => {
     setReportType(initialType);
   }, [initialType]);
+
+  useEffect(() => {
+    const floors = FLOORS_BY_BUILDING[building] ?? [];
+    setFloor(floors[0] ?? '');
+    if (
+      building !== 'First Building' &&
+      building !== 'Second Building' &&
+      building !== 'Third Building'
+    ) {
+      setRoomNumber('');
+    }
+  }, [building]);
 
   useEffect(() => {
     return () => {
       if (imagePreview) URL.revokeObjectURL(imagePreview);
     };
   }, [imagePreview]);
+
+  const formattedLocation = useMemo(() => {
+    const parts: string[] = [building];
+    if (hasFloors && floor) parts.push(floor);
+    if (hasRooms && roomNumber.trim()) {
+      const cleanedRoom = roomNumber.trim().replace(/^room\s*/i, '');
+      parts.push(`Room ${cleanedRoom}`);
+    }
+    return parts.join(' - ');
+  }, [building, floor, roomNumber, hasFloors, hasRooms]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMsg(null);
@@ -77,7 +134,7 @@ export default function ReportItemForm({ initialType = 'lost' }: ReportItemFormP
       return;
     }
 
-    const maxSizeBytes = 5 * 1024 * 1024; // 5 MB
+    const maxSizeBytes = 5 * 1024 * 1024;
     if (file.size > maxSizeBytes) {
       setErrorMsg('Image size must be 5 MB or less.');
       return;
@@ -103,6 +160,11 @@ export default function ReportItemForm({ initialType = 'lost' }: ReportItemFormP
       return;
     }
 
+    if (hasRooms && !roomNumber.trim()) {
+      setErrorMsg(`Please enter the room number for ${building}.`);
+      return;
+    }
+
     setSubmitting(true);
 
     try {
@@ -120,7 +182,9 @@ export default function ReportItemForm({ initialType = 'lost' }: ReportItemFormP
 
       if (imageFile) {
         const ext = imageFile.name.split('.').pop()?.toLowerCase() || 'jpg';
-        const filePath = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const filePath = `${user.id}/${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}.${ext}`;
 
         const { error: uploadError } = await supabase.storage
           .from('item-images')
@@ -151,18 +215,17 @@ export default function ReportItemForm({ initialType = 'lost' }: ReportItemFormP
         type: reportType,
         title: title.trim(),
         category,
-        location,
+        location: formattedLocation,
         incident_date: new Date(incidentDate).toISOString(),
         description: description.trim(),
         contact_info: contactInfo.trim() || user.email || null,
-        status: 'pending',
+        status: 'approved',
         image_url: uploadedImageUrl,
       };
 
       const { error: insertError } = await supabase.from('items').insert(payload);
 
       if (insertError) {
-        // Fallback in case schema uses photo_url instead of image_url
         if (insertError.message.includes('image_url')) {
           delete payload.image_url;
           payload.photo_url = uploadedImageUrl;
@@ -270,37 +333,87 @@ export default function ReportItemForm({ initialType = 'lost' }: ReportItemFormP
             </div>
           </div>
 
-          {/* Location & Date/Time */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Campus Location *
-              </label>
-              <select
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
-              >
-                {CAMPUS_LOCATIONS.map((loc) => (
-                  <option key={loc} value={loc}>
-                    {loc}
-                  </option>
-                ))}
-              </select>
+          {/* Campus Building, Floor, Room & Date/Time */}
+          <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-50/70 p-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Campus Location *
+                </label>
+                <select
+                  value={building}
+                  onChange={(e) => setBuilding(e.target.value as BuildingKey)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
+                >
+                  {BUILDINGS.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Date &amp; Time {reportType === 'lost' ? 'Lost' : 'Found'} *
+                </label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={incidentDate}
+                  onChange={(e) => setIncidentDate(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Date &amp; Time {reportType === 'lost' ? 'Lost' : 'Found'} *
-              </label>
-              <input
-                type="datetime-local"
-                required
-                value={incidentDate}
-                onChange={(e) => setIncidentDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
-              />
-            </div>
+            {(hasFloors || hasRooms) && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {hasFloors && (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Floor *
+                    </label>
+                    <select
+                      value={floor}
+                      onChange={(e) => setFloor(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
+                    >
+                      {availableFloors.map((fl) => (
+                        <option key={fl} value={fl}>
+                          {fl}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {hasRooms && (
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-600">
+                      Room Number *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={roomNumber}
+                      onChange={(e) => setRoomNumber(e.target.value)}
+                      placeholder={
+                        floor === 'Floor 2 (Comlab)'
+                          ? 'e.g., Comlab 1 or 204'
+                          : 'e.g., 101, 203, 305'
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-emerald-700 focus:outline-none"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-slate-600">
+              Selected Location:{' '}
+              <span className="font-semibold text-emerald-800">{formattedLocation}</span>
+            </p>
           </div>
 
           {/* Contact Info */}

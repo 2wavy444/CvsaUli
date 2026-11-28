@@ -34,19 +34,34 @@ const MONTHS = [
   { value: '12', label: 'December' },
 ];
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
 function getItemDate(report: DashboardReportItem): Date {
   return new Date(report.incident_date || report.created_at);
 }
 
-/**
- * Computes Philippine / CvSU Academic Year (August to July).
- * Example: Aug 2026 - Jul 2027 -> "AY 2026-2027"
- */
 function getAcademicYear(date: Date): string {
   const year = date.getFullYear();
-  const month = date.getMonth() + 1; // 1 = Jan, 8 = Aug
+  const month = date.getMonth() + 1;
   const startYear = month >= 8 ? year : year - 1;
   return `AY ${startYear}-${startYear + 1}`;
+}
+
+export function isUnclaimedOverMonth(
+  report: DashboardReportItem,
+  nowMs: number = Date.now()
+): boolean {
+  const s = report.status.toLowerCase();
+  const isAlreadyResolved =
+    s.includes('recovered') ||
+    s.includes('returned') ||
+    s.includes('claimed') ||
+    s.includes('confirmed');
+  if (isAlreadyResolved) return false;
+
+  const d = getItemDate(report);
+  if (Number.isNaN(d.getTime())) return false;
+  return nowMs - d.getTime() >= THIRTY_DAYS_MS;
 }
 
 function formatDisplayDate(report: DashboardReportItem): string {
@@ -71,6 +86,7 @@ function getStatusBadgeStyle(status: string): string {
 }
 
 export default function DashboardArchive({ reports }: DashboardArchiveProps) {
+  const [archiveBucket, setArchiveBucket] = useState<'all' | 'active' | 'tambakan'>('all');
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('all');
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
@@ -78,9 +94,15 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
   const [selectedType, setSelectedType] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Build available Academic Years (always includes current & previous AY + any from reports)
+  const nowMs = useMemo(() => Date.now(), []);
+
+  const tambakanCount = useMemo(
+    () => reports.filter((r) => isUnclaimedOverMonth(r, nowMs)).length,
+    [reports, nowMs]
+  );
+
   const availableAcademicYears = useMemo(() => {
-    const now = new Date();
+    const now = new Date(nowMs);
     const currentAyStart = now.getMonth() + 1 >= 8 ? now.getFullYear() : now.getFullYear() - 1;
     const aySet = new Set<string>([
       `AY ${currentAyStart}-${currentAyStart + 1}`,
@@ -95,11 +117,10 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
     }
 
     return Array.from(aySet).sort((a, b) => b.localeCompare(a));
-  }, [reports]);
+  }, [reports, nowMs]);
 
-  // Build available calendar years
   const availableYears = useMemo(() => {
-    const years = new Set<number>([new Date().getFullYear()]);
+    const years = new Set<number>([new Date(nowMs).getFullYear()]);
     for (const r of reports) {
       const d = getItemDate(r);
       if (!Number.isNaN(d.getTime())) {
@@ -107,7 +128,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
       }
     }
     return Array.from(years).sort((a, b) => b - a);
-  }, [reports]);
+  }, [reports, nowMs]);
 
   const days = useMemo(() => Array.from({ length: 31 }, (_, i) => i + 1), []);
 
@@ -117,6 +138,10 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
     return reports.filter((report) => {
       const d = getItemDate(report);
       if (Number.isNaN(d.getTime())) return false;
+
+      const overMonth = isUnclaimedOverMonth(report, nowMs);
+      if (archiveBucket === 'tambakan' && !overMonth) return false;
+      if (archiveBucket === 'active' && overMonth) return false;
 
       if (selectedAcademicYear !== 'all' && getAcademicYear(d) !== selectedAcademicYear) {
         return false;
@@ -134,7 +159,9 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
         return false;
       }
       if (q) {
-        const hay = `${report.reference_code} ${report.title} ${report.location ?? ''} ${report.category ?? ''}`.toLowerCase();
+        const hay = `${report.reference_code} ${report.title} ${report.location ?? ''} ${
+          report.category ?? ''
+        }`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
 
@@ -142,6 +169,8 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
     });
   }, [
     reports,
+    nowMs,
+    archiveBucket,
     selectedAcademicYear,
     selectedYear,
     selectedMonth,
@@ -151,6 +180,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
   ]);
 
   const hasActiveFilters =
+    archiveBucket !== 'all' ||
     selectedAcademicYear !== 'all' ||
     selectedYear !== 'all' ||
     selectedMonth !== 'all' ||
@@ -159,6 +189,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
     searchQuery.trim() !== '';
 
   const resetFilters = () => {
+    setArchiveBucket('all');
     setSelectedAcademicYear('all');
     setSelectedYear('all');
     setSelectedMonth('all');
@@ -169,18 +200,24 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {/* Header + Archive Count */}
+      {/* Header + Quick Tambakan / Storage Link */}
       <div className="flex flex-col justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-base font-bold text-slate-900 sm:text-lg">
             My Submitted Reports Archive
           </h2>
           <p className="text-xs text-slate-500">
-            Filter reports by academic year, day, month, year, or report type.
+            Filter by academic year, day, month, year, or items unclaimed for 30+ days (Tambakan / Storage).
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/archive"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
+          >
+            Tambakan / Storage ({tambakanCount})
+          </Link>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
             Showing {filteredReports.length} of {reports.length}
           </span>
@@ -190,15 +227,34 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
               onClick={resetFilters}
               className="rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              Reset Filters
+              Reset
             </button>
           )}
         </div>
       </div>
 
-      {/* Archive Filter Controls (Academic Year, Day, Month, Year, Type, Search) */}
+      {/* Archive Filter Controls */}
       <div className="border-b border-slate-100 bg-slate-50/80 p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
+          {/* Storage / Tambakan Status */}
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Archive Storage
+            </label>
+            <select
+              value={archiveBucket}
+              onChange={(e) =>
+                setArchiveBucket(e.target.value as 'all' | 'active' | 'tambakan')
+              }
+              aria-label="Filter by archive storage"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-emerald-700 focus:outline-none sm:text-sm"
+            >
+              <option value="all">All Reports</option>
+              <option value="active">Active (&lt; 1 Month)</option>
+              <option value="tambakan">Tambakan / Storage (30+ Days)</option>
+            </select>
+          </div>
+
           {/* Academic Year */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -314,7 +370,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
 
       {/* Results Table */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] text-left text-sm">
+        <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
             <tr>
               <th className="px-4 py-3">Ref #</th>
@@ -330,7 +386,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
                   {hasActiveFilters
-                    ? 'No reports match the selected academic year, day, month, year, or filter.'
+                    ? 'No reports match the selected filters.'
                     : 'No reports submitted yet.'}
                 </td>
               </tr>
@@ -340,6 +396,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
                 const ayLabel = Number.isNaN(itemDate.getTime())
                   ? 'N/A'
                   : getAcademicYear(itemDate);
+                const overMonth = isUnclaimedOverMonth(item, nowMs);
 
                 return (
                   <tr key={item.id} className="hover:bg-slate-50">
@@ -355,6 +412,11 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
                       <Link href={`/items/${item.id}`} className="hover:text-emerald-700">
                         {item.title}
                       </Link>
+                      {overMonth && (
+                        <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">
+                          Tambakan (30d+)
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 capitalize text-slate-600">{item.type}</td>
                     <td className="px-4 py-3 text-xs font-medium text-slate-600">{ayLabel}</td>

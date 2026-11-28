@@ -135,7 +135,6 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Left 2 Columns: Archive & Claim Requests */}
         <div className="space-y-6 lg:col-span-2">
-          {/* My Submitted Reports Archive with Academic Year, Day, Month, Year Filters */}
           <DashboardArchive reports={safeReports} />
 
           {/* My Claim Requests */}
