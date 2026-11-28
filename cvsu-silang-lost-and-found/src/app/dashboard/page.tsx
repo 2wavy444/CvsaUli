@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import BackButton from '@/components/BackButton';
+import DashboardArchive from '@/components/DashboardArchive';
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -132,61 +133,10 @@ export default async function DashboardPage() {
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left 2 Columns: Tables */}
+        {/* Left 2 Columns: Archive & Claim Requests */}
         <div className="space-y-6 lg:col-span-2">
-          {/* My Submitted Reports */}
-          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4">
-              <h2 className="text-base font-bold text-slate-900 sm:text-lg">
-                My Submitted Reports
-              </h2>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[540px] text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Ref #</th>
-                    <th className="px-4 py-3">Item</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {safeReports.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
-                        No reports submitted yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    safeReports.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-700">
-                          {item.reference_code}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-slate-900">
-                          <Link href={`/items/${item.id}`} className="hover:text-emerald-700">
-                            {item.title}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-3 capitalize text-slate-600">{item.type}</td>
-                        <td className="px-4 py-3">
-                          <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold capitalize text-slate-700">
-                            {item.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500">
-                          {new Date(item.created_at).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          {/* My Submitted Reports Archive with Academic Year, Day, Month, Year Filters */}
+          <DashboardArchive reports={safeReports} />
 
           {/* My Claim Requests */}
           <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
