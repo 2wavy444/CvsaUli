@@ -2,18 +2,15 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import {
+  formatArchiveDate,
+  getAcademicYear,
+  getItemDate,
+  isUnclaimedOverMonth,
+  type ArchiveReportItem,
+} from '@/lib/utils/archive';
 
-export interface DashboardReportItem {
-  id: string;
-  reference_code: string;
-  title: string;
-  type: 'lost' | 'found' | string;
-  status: string;
-  location?: string | null;
-  category?: string | null;
-  incident_date?: string | null;
-  created_at: string;
-}
+export type DashboardReportItem = ArchiveReportItem;
 
 interface DashboardArchiveProps {
   reports: DashboardReportItem[];
@@ -34,46 +31,6 @@ const MONTHS = [
   { value: '12', label: 'December' },
 ];
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-function getItemDate(report: DashboardReportItem): Date {
-  return new Date(report.incident_date || report.created_at);
-}
-
-function getAcademicYear(date: Date): string {
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  const startYear = month >= 8 ? year : year - 1;
-  return `AY ${startYear}-${startYear + 1}`;
-}
-
-export function isUnclaimedOverMonth(
-  report: DashboardReportItem,
-  nowMs: number = Date.now()
-): boolean {
-  const s = report.status.toLowerCase();
-  const isAlreadyResolved =
-    s.includes('recovered') ||
-    s.includes('returned') ||
-    s.includes('claimed') ||
-    s.includes('confirmed');
-  if (isAlreadyResolved) return false;
-
-  const d = getItemDate(report);
-  if (Number.isNaN(d.getTime())) return false;
-  return nowMs - d.getTime() >= THIRTY_DAYS_MS;
-}
-
-function formatDisplayDate(report: DashboardReportItem): string {
-  const d = getItemDate(report);
-  if (Number.isNaN(d.getTime())) return 'N/A';
-  return d.toLocaleDateString('en-PH', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
 function getStatusBadgeStyle(status: string): string {
   const s = status.toLowerCase();
   if (s.includes('approved') || s.includes('confirmed') || s.includes('recovered')) {
@@ -86,7 +43,7 @@ function getStatusBadgeStyle(status: string): string {
 }
 
 export default function DashboardArchive({ reports }: DashboardArchiveProps) {
-  const [archiveBucket, setArchiveBucket] = useState<'all' | 'active' | 'tambakan'>('all');
+  const [archiveBucket, setArchiveBucket] = useState<'all' | 'active' | 'unclaimed'>('all');
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('all');
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
@@ -96,7 +53,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
 
   const nowMs = useMemo(() => Date.now(), []);
 
-  const tambakanCount = useMemo(
+  const unclaimedCount = useMemo(
     () => reports.filter((r) => isUnclaimedOverMonth(r, nowMs)).length,
     [reports, nowMs]
   );
@@ -140,7 +97,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
       if (Number.isNaN(d.getTime())) return false;
 
       const overMonth = isUnclaimedOverMonth(report, nowMs);
-      if (archiveBucket === 'tambakan' && !overMonth) return false;
+      if (archiveBucket === 'unclaimed' && !overMonth) return false;
       if (archiveBucket === 'active' && overMonth) return false;
 
       if (selectedAcademicYear !== 'all' && getAcademicYear(d) !== selectedAcademicYear) {
@@ -200,14 +157,13 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {/* Header + Quick Tambakan / Storage Link */}
       <div className="flex flex-col justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-base font-bold text-slate-900 sm:text-lg">
             My Submitted Reports Archive
           </h2>
           <p className="text-xs text-slate-500">
-            Filter by academic year, day, month, year, or items unclaimed for 30+ days (Tambakan / Storage).
+            Filter by academic year, day, month, year, or Unclaim Items (30+ days).
           </p>
         </div>
 
@@ -216,7 +172,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
             href="/archive"
             className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900 transition hover:bg-amber-100"
           >
-            Tambakan / Storage ({tambakanCount})
+            Unclaim Items ({unclaimedCount})
           </Link>
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
             Showing {filteredReports.length} of {reports.length}
@@ -233,29 +189,26 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
         </div>
       </div>
 
-      {/* Archive Filter Controls */}
       <div className="border-b border-slate-100 bg-slate-50/80 p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
-          {/* Storage / Tambakan Status */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-              Archive Storage
+              Archive Filter
             </label>
             <select
               value={archiveBucket}
               onChange={(e) =>
-                setArchiveBucket(e.target.value as 'all' | 'active' | 'tambakan')
+                setArchiveBucket(e.target.value as 'all' | 'active' | 'unclaimed')
               }
-              aria-label="Filter by archive storage"
+              aria-label="Filter by archive status"
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-emerald-700 focus:outline-none sm:text-sm"
             >
               <option value="all">All Reports</option>
               <option value="active">Active (&lt; 1 Month)</option>
-              <option value="tambakan">Tambakan / Storage (30+ Days)</option>
+              <option value="unclaimed">Unclaim Items (30+ Days)</option>
             </select>
           </div>
 
-          {/* Academic Year */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Academic Year
@@ -275,7 +228,6 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
             </select>
           </div>
 
-          {/* Day */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Day
@@ -295,7 +247,6 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
             </select>
           </div>
 
-          {/* Month */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Month
@@ -315,7 +266,6 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
             </select>
           </div>
 
-          {/* Year */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Year
@@ -335,7 +285,6 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
             </select>
           </div>
 
-          {/* Type */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Type
@@ -352,7 +301,6 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
             </select>
           </div>
 
-          {/* Search */}
           <div>
             <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Search
@@ -368,7 +316,6 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
         </div>
       </div>
 
-      {/* Results Table */}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
@@ -414,7 +361,7 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
                       </Link>
                       {overMonth && (
                         <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">
-                          Tambakan (30d+)
+                          Unclaim Items (30d+)
                         </span>
                       )}
                     </td>
@@ -429,7 +376,9 @@ export default function DashboardArchive({ reports }: DashboardArchiveProps) {
                         {item.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{formatDisplayDate(item)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {formatArchiveDate(item)}
+                    </td>
                   </tr>
                 );
               })
